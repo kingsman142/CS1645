@@ -1,0 +1,18 @@
+If (Pid == 1) { /* this part is executed by processor whose Pid = 1*/
+	max = my_max;
+	/* receive maximum_value_1 and maximum_value_2 from processor i*2 and (i*2)+1; */
+	maximum_value = max(maximum_value_1, maximum_value_2);
+	if (maximum_value > max) {
+		max = maximum_value;
+	}
+}
+else { /* this part is executed by al other processors with Pid != 1 */
+	/* receive max_value_1, max_value_2 from processor i*2 and (i*2)+1; */
+	my_max = max(max_value_1, max_value_2);
+	if (pid % 2 == 0) {
+		/* send my_max to the processor whose Pid = pid/2 */ ;
+	}
+	else {
+		/* send my_max to the processor whose Pid = (pid - 1)/2 */ ;
+	}
+} 

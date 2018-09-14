@@ -1,0 +1,29 @@
+Let k = power of n (i.e. 2, 3, 4, ...)
+If (Pid == 1) { /* this part is executed by processor whose Pid = 1 */
+	max = my_max;
+	/* receive maximum_value_list = [ maximum_value_1, maximum_value_2, ..., maximum_value_k from processor (i*k), (i*k)+1, ..., (i*k)+(k-1) ]; */
+	for ( maximum_value : maximum_value_list ) {
+		if (maximum_value > max) {
+			max = maximum_value;
+		}
+	}
+}
+else { /* this part is executed by all other processors with Pid != 1 */
+	/* receive max_value_list = [ max_value_1, max_value_2, ..., max_value_k from processor (i*k), (i*k)+1, ..., (i*k)+(k-1) ]; */
+	my_max = max_value_list[0];
+	for ( max_value : max_value_list ) {
+		if max_value > max) {
+			my_max = max_value;
+		}
+	}
+	if (pid % k == 0) {
+		/* send my_max to the processor whose Pid = pid/k */ ;
+	}
+	else {
+		for (i = pid; i > k; i--) {
+			if (i % k == 0) {
+				/* send my_max to the processor whose Pid = (pid - 1)/k */ ;
+			}
+		}
+	}
+}
