@@ -28,14 +28,12 @@ int main(int argc, char* argv[]){
 
 	double xConstraint = 2.0;
 	double yConstraint = 1.0;
-	double dx = (double) xConstraint / x;
-	double dy = (double) yConstraint / y;
+	double dx = (double) xConstraint / (x-1);
+	double dy = (double) yConstraint / (y-1);
 
 	vvd poissonMatrix = initialize_arr(y, x);
 	poissonMatrix = set_boundary_values(poissonMatrix, y, x, dx, dy, verif_left, verif_top, verif_right, verif_bottom);
-	print_solution(poissonMatrix);
-	cout<<endl;
-	poissonMatrix = solve_gauss_seidel(1000, poissonMatrix, y, x, dx, dy);
+	poissonMatrix = solve_gauss_seidel(100000, poissonMatrix, y, x, dx, dy);
 	print_solution(poissonMatrix);
 
 	return 0;
@@ -56,6 +54,8 @@ void solve_jacobi(){
 }
 
 vvd solve_gauss_seidel(int iters, vvd a, int m, int n, double dx, double dy){
+	double dx2 = pow(dx, 2);
+	double dy2 = pow(dy, 2);
 	for(int iter = 0; iter < iters; iter++){
 		vvd output(a);
 		for(int i = 1; i < m-1; i++){
@@ -65,10 +65,8 @@ vvd solve_gauss_seidel(int iters, vvd a, int m, int n, double dx, double dy){
 				double above = a[i-1][j];
 				double right = a[i][j+1];
 				double left = a[i][j-1];
-				if(iter == 0) cout<<below<<" "<<here<<" "<<above<<" "<<right<<" "<<left<<endl;
-				//output[i][j] = (below - 2*here - above) / (dy*dy) + (right - 2*here + left) / (dx*dx);
-				output[i][j] = -(1.0/4.0)*(-(i*dx)*pow(dx, 2) + a[i+1][j] + a[i-1][j] + a[i][j-1] + a[i][j+1]);
-				if(iter == 0) cout<<output[i][j]<<endl;
+				//output[i][j] = (1.0/4.0)*(-(i*dx)*exp(j*dy)*dx*dx + a[i+1][j] + a[i-1][j] + a[i][j-1] + a[i][j+1]);
+				output[i][j] = (dy2*left + dy2*right + dx2*above + dx2*below - dx2*dy2*(j*dx)*exp(i*dy)) / (2*dy2 + 2*dx2);
 			}
 		}
 		a = output;
@@ -79,9 +77,9 @@ vvd solve_gauss_seidel(int iters, vvd a, int m, int n, double dx, double dy){
 
 vvd set_boundary_values(vvd a, int m, int n, double dx, double dy, vvd left(vvd, int, double), vvd top(vvd, int, double), vvd right(vvd, int, int, double), vvd bottom(vvd, int, int, double)){
 	a = left(a, m, dy);
-	a = top(a, n, dx);
 	a = right(a, m, n, dy);
 	a = bottom(a, m, n, dx);
+	a = top(a, n, dx);
 	return a;
 }
 
@@ -123,22 +121,6 @@ double calc_norm(vector<double> vec, double p){
 	return norm;
 }
 
-vvd verif_bottom(vvd a, int m, int n, double dx){
-	for(int i = 0; i < n; i++){
-		a[m-1][i] = (i*dx)*exp(1);
-	}
-
-	return a;
-}
-
-vvd verif_top(vvd a, int n, double dx){
-	for(int i = 0; i < n; i++){
-		a[0][i] = 2.0*exp(i*dx);
-	}
-
-	return a;
-}
-
 vvd verif_left(vvd a, int m, double dy){
 	for(int i = 0; i < m; i++){
 		a[i][0] = 0;
@@ -149,7 +131,23 @@ vvd verif_left(vvd a, int m, double dy){
 
 vvd verif_right(vvd a, int m, int n, double dy){
 	for(int i = 0; i < m; i++){
-		a[i][n-1] = 2*exp(i*dy);
+		a[m-i-1][n-1] = 2.0*exp(i*dy);
+	}
+
+	return a;
+}
+
+vvd verif_bottom(vvd a, int m, int n, double dx){
+	for(int i = 0; i < n; i++){
+		a[m-1][i] = i*dx;
+	}
+
+	return a;
+}
+
+vvd verif_top(vvd a, int n, double dx){
+	for(int i = 0; i < n; i++){
+		a[0][i] = (i*dx)*exp(1);
 	}
 
 	return a;
