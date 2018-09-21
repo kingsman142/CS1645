@@ -5,11 +5,11 @@
 using namespace std;
 
 #define vvd vector< vector<double> >
+#define CONVERGENCE .000000000001
 
-vector<double> subtract_vectors(vector<double>, vector<double>);
-double calc_norm(vector<double>, vector<double>, int);
+double calc_norm(vvd, double, double);
 void solve_jacobi();
-vvd solve_gauss_seidel(int, vvd, int, int, double, double);
+vvd solve_gauss_seidel(vvd, int, int, double, double);
 vvd initialize_arr(int, int);
 vvd set_boundary_values(vvd, int, int, double, double, vvd l(vvd, int, double), vvd t(vvd, int, double), vvd r(vvd, int, int, double), vvd b(vvd, int, int, double));
 vvd verif_left(vvd, int, double);
@@ -33,9 +33,10 @@ int main(int argc, char* argv[]){
 
 	vvd poissonMatrix = initialize_arr(y, x);
 	poissonMatrix = set_boundary_values(poissonMatrix, y, x, dx, dy, verif_left, verif_top, verif_right, verif_bottom);
-	poissonMatrix = solve_gauss_seidel(100000, poissonMatrix, y, x, dx, dy);
+	poissonMatrix = solve_gauss_seidel(poissonMatrix, y, x, dx, dy);
 	print_solution(poissonMatrix);
-
+	double error = calc_norm(poissonMatrix, dx, dy);
+	cout<<"Error: "<<error<<endl;
 	return 0;
 }
 
@@ -53,11 +54,12 @@ void solve_jacobi(){
 	return;
 }
 
-vvd solve_gauss_seidel(int iters, vvd a, int m, int n, double dx, double dy){
+vvd solve_gauss_seidel(vvd a, int m, int n, double dx, double dy){
 	double dx2 = pow(dx, 2);
 	double dy2 = pow(dy, 2);
-	for(int iter = 0; iter < iters; iter++){
+	while(true){
 		vvd output(a);
+		double convergenceCheck = a[1][1];
 		for(int i = 1; i < m-1; i++){
 			for(int j = 1; j < n-1; j++){
 				double below = a[i+1][j];
@@ -65,11 +67,13 @@ vvd solve_gauss_seidel(int iters, vvd a, int m, int n, double dx, double dy){
 				double above = a[i-1][j];
 				double right = a[i][j+1];
 				double left = a[i][j-1];
-				//output[i][j] = (1.0/4.0)*(-(i*dx)*exp(j*dy)*dx*dx + a[i+1][j] + a[i-1][j] + a[i][j-1] + a[i][j+1]);
 				output[i][j] = (dy2*left + dy2*right + dx2*above + dx2*below - dx2*dy2*(j*dx)*exp(i*dy)) / (2*dy2 + 2*dx2);
 			}
 		}
 		a = output;
+		if(a[1][1] - convergenceCheck <= CONVERGENCE){
+			break;
+		}
 	}
 
 	return a;
@@ -94,31 +98,19 @@ vvd initialize_arr(int m, int n){
 	return output;
 }
 
-// Subtract two vectors from each other
-vector<double> subtract_vectors(vector<double> t1, vector<double> t2){
-	int t1Size = t1.size();
-	int t2Size = t2.size();
-	if(t1Size != t2Size){
-		return t1;
-	}
-
-	vector<double> output(t1Size);
-	for(int i = 0; i < t1Size; i++){
-		int diff = t2[i] - t1[i];
-		output[i] = diff;
-	}
-
-	return output;
-}
-
 // Calculate the p-norm between two vectors t1 and t2
-double calc_norm(vector<double> vec, double p){
-	double sum = 0;
-	for(int i = 0; i < vec.size(); i++){
-		sum += (p == 1) ? abs(vec[i]) : pow(vec[i], p);
+double calc_norm(vvd a, double dx, double dy){
+	double min = abs(a[1][1] - dx*exp(dy));
+	cout<<"min: "<<min<<endl;
+	for(int i = 1; i < a.size()-1; i++){
+		for(int j = 1; j < a[0].size()-1; j++){
+			double sourceTerm = (j*dx)*exp(i*dy);
+			double diff = abs(a[i][j] - sourceTerm);
+			if(diff < min) min = diff;
+		}
 	}
-	double norm = pow(sum, 1.0/p);
-	return norm;
+
+	return min;
 }
 
 vvd verif_left(vvd a, int m, double dy){
