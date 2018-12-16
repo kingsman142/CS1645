@@ -48,7 +48,7 @@ int main(int argc, char* argv[]){
 	vvd poissonMatrixJacobi = solve_jacobi(poissonMatrix, y, x, dx, dy);
 	vvd poissonMatrixGauss = solve_gauss_seidel(poissonMatrix, y, x, dx, dy);
 	// NOTE: Uncomment these two lines to print out a square matrix of values containing the solutions for Jacobi and Gauss-Seidel
-	// print_solution(poissonMatrixJacobi);
+	print_solution(poissonMatrixJacobi);
 	// print_solution(poissonMatrixGauss);
 
 	// NOTE: The following three lines of code, when uncommented, allow the user to create a .vtk file of the output array to view the
@@ -95,7 +95,9 @@ vvd solve_jacobi(vvd a, int m, int n, double dx, double dy){
 	double dx2 = pow(dx, 2); // dx^2
 	double dy2 = pow(dy, 2); // dy^2
 
-	while(true){ // NOTE: Use iterations only for the problem solving example; otherwise, if you know the ground-truth value, use lines 106-108
+	int iters = 0;
+	while(iters < 10){ // NOTE: Use iterations only for the problem solving example; otherwise, if you know the ground-truth value, use lines 106-108
+		iters++;
 		vvd output(a);
 		for(int i = 1; i < m-1; i++){
 			for(int j = 1; j < n-1; j++){
@@ -112,11 +114,13 @@ vvd solve_jacobi(vvd a, int m, int n, double dx, double dy){
 		vvd iterDiff = subtract_vectors(output, a);
 		a = output;
 
-		if(calc_normal_norm(iterDiff) <= CONVERGENCE){
+		double convergenceCheck = calc_normal_norm(iterDiff);
+		if(convergenceCheck <= CONVERGENCE){
 			break;
 		}
 	}
 
+	cout<<"Iterations: "<<iters<<endl;
 	// calculate final time difference
 	t2 = clock();
 	float diff ((float)t2-(float)t1);

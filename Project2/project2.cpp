@@ -8,9 +8,10 @@
 using namespace std;
 
 #define CONVERGENCE .000000000001
+#define ROOT 0
 #define HEAP_SIZE 8192
 
-double calc_norm(double*, double, double, int, int);
+double calc_norm(double*, double, double, int, int, int, int);
 void solve_jacobi();
 double* solve_poisson_equation(double*, double, double, int, int, int, int, int);
 double* initialize_arr(int, int);
@@ -26,48 +27,58 @@ void get_border_values(double*, double*, double*, double*, double*, int, int, in
 double* copy_arr(double*, int, int);
 
 int main(int argc, char* argv[]){
-	int x, y, npX, npY;
+	int x, y, npX, npY, rank, np;
+	MPI_Status status;
+	MPI_Request req;
 
-	cout<<"Enter grid x dimension: ";
-	cin >> x;
-	cout<<"Enter grid y dimension: ";
-	cin >> y;
-	cout<<"Processors in x dimension: ";
-	cin >> npX;
-	cout<<"Processors in y dimension: ";
-	cin >> npY;
+	MPI_Init(&argc, &argv);
+	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+	MPI_Comm_size(MPI_COMM_WORLD, &np);
 
-	if(x % npX != 0 || y % npY != 0){ // can the grid be evenly divided by the processor layout specified by the user?
-		cout<<"Mismatch in the number of processors!"<<endl;
+	if(rank == ROOT){
+		cout<<"Enter grid x dimension: ";
+		cin >> x;
+		cout<<"Enter grid y dimension: ";
+		cin >> y;
+		cout<<"Processors in x dimension: ";
+		cin >> npX;
+		cout<<"Processors in y dimension: ";
+		cin >> npY;
+	}
+
+	MPI_Barrier(MPI_COMM_WORLD);
+	MPI_Bcast(&x, 1, MPI_INT, ROOT, MPI_COMM_WORLD);
+	MPI_Bcast(&y, 1, MPI_INT, ROOT, MPI_COMM_WORLD);
+	MPI_Bcast(&npX, 1, MPI_INT, ROOT, MPI_COMM_WORLD);
+	MPI_Bcast(&npY, 1, MPI_INT, ROOT, MPI_COMM_WORLD);
+
+	if(npX * npY != np || x % npX != 0 || y % npY != 0){ // can the grid be evenly divided by the processor layout specified by the user?
+		if(rank == ROOT) cout<<"Mismatch in the number of processors!"<<endl;
+		MPI_Finalize();
 		return 1;
 	} else if((x * y * sizeof(double))/1024 > HEAP_SIZE){ // can the grid even be stored on the heap?
-		cout<<"Grid size too large!"<<endl;
+		if(rank == ROOT) cout<<"Grid size too large!"<<endl;
+		MPI_Finalize();
 		return 1;
 	}
 
-	int np = npX * npY;
-	omp_set_num_threads(np);
-	double* poissonMatrix = initialize_arr(y, x);
-	#pragma parallel shared(poissonMatrix){
-		int rank = omp_get_thread_num();
+	double xConstraintMin = 0.0;
+	double yConstraintMin = 0.0;
+	double xConstraint = 2.0;
+	double yConstraint = 1.0;
+	double dx = (double) xConstraint / (x-1);
+	double dy = (double) yConstraint / (y-1);
+	double subMatrixX = x / npX;
+	double subMatrixY = y / npY;
 
-		double xConstraintMin = 0.0;
-		double yConstraintMin = 0.0;
-		double xConstraint = 2.0;
-		double yConstraint = 1.0;
-		double dx = (double) xConstraint / (x-1);
-		double dy = (double) yConstraint / (y-1);
-		double subMatrixX = x / npX;
-		double subMatrixY = y / npY;
+	double chunkXMin = (rank % npX) * (subMatrixX) * dx; // minimum X value in the grid for this processor
+	double chunkXMax = chunkXMin + (subMatrixX*dx); // maximum X value in the grid for this processor
+	double chunkYMin = (rank / npX) * (subMatrixY) * dy; // minimum Y value in the grid for this processor
+	double chunkYMax = chunkYMin + (subMatrixY*dy); // maximum Y value in the grid for this processor
 
-		double chunkXMin = (rank % npX) * (subMatrixX) * dx; // minimum X value in the grid for this processor
-		double chunkXMax = chunkXMin + (subMatrixX*dx); // maximum X value in the grid for this processor
-		double chunkYMin = (rank / npX) * (subMatrixY) * dy; // minimum Y value in the grid for this processor
-		double chunkYMax = chunkYMin + (subMatrixY*dy); // maximum Y value in the grid for this processor
-
-		poissonMatrix = set_boundary_values(poissonMatrix, subMatrixY, subMatrixX, dx, dy, npX, np, rank, verif_left, verif_top, verif_right, verif_bottom);
-		poissonMatrix = solve_poisson_equation(poissonMatrix, dx, dy, subMatrixY, subMatrixX, rank, npX, npY);
-	}
+	double* poissonMatrix = initialize_arr(subMatrixY, subMatrixX);
+	poissonMatrix = set_boundary_values(poissonMatrix, subMatrixY, subMatrixX, dx, dy, npX, np, rank, verif_left, verif_top, verif_right, verif_bottom);
+	poissonMatrix = solve_poisson_equation(poissonMatrix, dx, dy, subMatrixY, subMatrixX, rank, npX, npY);
 	// NOTE: Uncomment these three line to print out a square matrix of values containing the solution.
 	// cout<<"Processor "<<rank<<"'s matrix:"<<endl;
 	// print_matrix(poissonMatrix, subMatrixY, subMatrixN);
@@ -76,13 +87,15 @@ int main(int argc, char* argv[]){
 	// NOTE: The following line of code, when uncommented, allow the user to create a .vtk file of the output array to view the
 	//		 contour map in any visualization software, such as Paraview.
 	//		 Also required is uncommenting line 7, which is an include line, to gain access to VTK_out(...).
-	VTK_out(x, y, &xConstraintMin, &xConstraint, &yConstraintMin, &yConstraint, poissonMatrix, 1);
+	VTK_out(subMatrixX, subMatrixY, &chunkXMin, &chunkXMax, &chunkYMin, &chunkYMax, poissonMatrix, rank);
 
-	double error = calc_norm(poissonMatrix, dx, dy, y, x);
+	double error = calc_norm(poissonMatrix, dx, dy, subMatrixY, subMatrixX, rank, npX);
 	double minError = -1.0; // placeholder value, just in case the message passing fails
-	cout<<"Error: "<<minError<<endl;
+	MPI_Reduce(&error, &minError, 1, MPI_DOUBLE, MPI_MAX, ROOT, MPI_COMM_WORLD); // grab the maximum error from all processors and store it at the ROOT
+	if(rank == ROOT) cout<<"Error: "<<minError<<endl;
 
-	delete[] poissonMatrix; // free the malloc'd memory to prevent memory leaks
+	delete[] poissonMatrix; // free the malloc'd memory to prevent memory leaks	
+	MPI_Finalize();
 
 	return 0;
 }
@@ -104,7 +117,7 @@ double* solve_poisson_equation(double* a, double dx, double dy, int subMatrixM, 
 	double chunkStartX = (rank % npX) * subMatrixN * dx; // the starting X value of this processor's chunk
 	double chunkStartY = (rank / npX) * subMatrixM * dy; // the starting Y value of this processor's chunk
 	int np = npX * npY; // number of processors
-	//double startTime = MPI_Wtime();
+	double startTime = MPI_Wtime();
 
 	// some processors have to watch out for boundary conditions, so some update values on index 0, n-1, and m-1, but others have boundary conditions there
 	int leftBoundaryStartIndex = (rank % npX) == 0 ? 1 : 0; // on the left side of the grid? start at index 1; otherwise, start at 0
@@ -112,30 +125,36 @@ double* solve_poisson_equation(double* a, double dx, double dy, int subMatrixM, 
 	int topBoundaryStartIndex = (rank < npX) ? 1 : 0; // on the top side of the grid? start at index 1; otherwise, start at 0
 	int bottomBoundaryEndIndex = ((np - rank) <= npX) ? subMatrixM-1 : subMatrixM; // on the bottom of the grid? go up to index subMatrixM-1; otherwise, go to subMatrixM
 
+	double top[subMatrixN], leftArr[subMatrixM], rightArr[subMatrixM], bottom[subMatrixN]; // store the border values received from other processors
+
 	int iters = 0;
 	while(true){
 		iters++; // update the number of iterations
 		double* output = copy_arr(a, subMatrixM, subMatrixN); // store a copy of the old values of the array A, so we can find the convergence between iterations and know when to stop
+		get_border_values(a, top, bottom, leftArr, rightArr, subMatrixM, subMatrixN, npX, np, rank); // get values from bordering processor chunks for any necessary updates
 
 		for(int i = topBoundaryStartIndex; i < bottomBoundaryEndIndex; i++){
 			for(int j = leftBoundaryStartIndex; j < rightBoundaryEndIndex; j++){
-				double below = (i < subMatrixM-1) ? output[subMatrixN*(i+1) + j];
+				double below = (i < subMatrixM-1) ? output[subMatrixN*(i+1) + j] : bottom[j];
 				double here = output[i*subMatrixN + j];
 				double above = (i > 0) ? output[subMatrixN*(i-1) + j] : top[j];
-				double right = (j < subMatrixN-1) ? output[i*subMatrixN + j+1];
-				double left = (j > 0) ? output[i*subMatrixN + j-1];
+				double right = (j < subMatrixN-1) ? output[i*subMatrixN + j+1] : rightArr[i];
+				double left = (j > 0) ? output[i*subMatrixN + j-1] : leftArr[i];
 				// NOTE: Verification source term: (j*dx)*exp(i*dy)
 				double sourceTerm = (chunkStartX + j*dx)*exp(chunkStartY + i*dy); // ensure chunkStartX and chunkStartY add the necessary offsets
-				a[subMatrixN*i + j] = (dy2*left + dy2*right + dx2*above + dx2*below - dx2*dy2 * sourceTerm) / (2.0*dy2 + 2.0*dx2);
+				a[subMatrixN*i + j] = (dy2*left + dy2*right + dx2*above + dx2*below - dx2*dy2 * sourceTerm) / (2.0*dy2 + 2.0*dx2);	
 			}
 		}
-		#pragma omp barrier
 
 		double* iterDiff = subtract_vectors(output, a, subMatrixM, subMatrixN); // difference between iterations so we can take the norm next and check convergence
 
 		// find the norm for the chunk on each processor, then take the MAX of those norms and check if the entire grid has converged
 		double processorConvergenceCheck = calc_normal_norm(iterDiff, subMatrixM, subMatrixN);
 		double convergenceCheck = 1.0; // placeholder value, just in case the parallel processing screws up
+		MPI_Reduce(&processorConvergenceCheck, &convergenceCheck, 1, MPI_DOUBLE, MPI_MAX, ROOT, MPI_COMM_WORLD); // put the MAX of all norms in the root
+		MPI_Barrier(MPI_COMM_WORLD); // make sure all processes wait here to receive the global convergence value
+		MPI_Bcast(&convergenceCheck, 1, MPI_DOUBLE, ROOT, MPI_COMM_WORLD); // send the MAX from the root to all processors
+		MPI_Barrier(MPI_COMM_WORLD);
 		if(convergenceCheck <= CONVERGENCE){ // based on what has been assessed from all other processors, has the entire grid converged yet?
 			break;
 		}
@@ -206,7 +225,7 @@ double* initialize_arr(int m, int n){
 // Get this processor's border values from parallel processes; for example, if this processor has a neighbor to the right and bottom, grab and send border values for processors to the right and bottom
 void get_border_values(double* a, double* top, double* bottom, double* left, double* right, int subMatrixM, int subMatrixN, int npX, int np, int rank){
 	MPI_Request topRecvReq, bottomRecvReq, leftRecvReq, rightRecvReq, topSendReq, bottomSendReq, leftSendReq, rightSendReq;
-
+	
 	if(rank >= npX){ // this processor's chunk is not on the top row of the grid, so receive its respective top border values and send its top row to the top process for that processor's bottom border values
 		MPI_Irecv(top, subMatrixN, MPI_DOUBLE, rank - npX, 0, MPI_COMM_WORLD, &topRecvReq);
 		MPI_Isend(a, subMatrixN, MPI_DOUBLE, rank - npX, 0, MPI_COMM_WORLD, &bottomSendReq);
